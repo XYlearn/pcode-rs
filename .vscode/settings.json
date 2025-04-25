@@ -1,0 +1,25 @@
+{
+    "rust.rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.cargo.loadOutDirsFromCheck": true,
+    "rust-analyzer.cargo": {
+        "loadOutDirsFromCheck": true
+    },
+    "rust.rust-analyzer.cargo": {
+        "loadOutDirsFromCheck": true
+    },
+    "cmake.ignoreCMakeListsMissing": true,
+    "files.associations": {
+        "*.DecDiff": "diff",
+        "new": "cpp",
+        "vector": "cpp",
+        "__hash_table": "cpp",
+        "__tree": "cpp",
+        "array": "cpp",
+        "type_traits": "cpp",
+        "limits": "cpp",
+        "ratio": "cpp",
+        "tuple": "cpp",
+        "variant": "cpp",
+        "complex": "cpp"
+    },
+}
