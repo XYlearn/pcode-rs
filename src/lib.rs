@@ -1,14 +1,8 @@
-#![allow(non_upper_case_globals)]
-#![allow(non_camel_case_types)]
-#![allow(non_snake_case)]
-#![allow(unused)]
-mod bindings;
+/// Wrapper of Ghidra's Sleigh APIs
+pub mod sleigh;
 
-pub mod common;
-pub mod context;
-pub mod language;
-pub mod processor;
+/// Intermediate language representations
+pub mod il;
 
-pub use context::Context;
-pub use language::{LanguageDefinitions, LanguageSpec};
-pub use processor::ProcessorSpec;
+/// Analysis
+pub mod anal;

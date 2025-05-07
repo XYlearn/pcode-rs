@@ -5,7 +5,10 @@ use std::{
 
 use clap::Parser;
 use clap_num::maybe_hex;
-use pcode_rs::{sleigh::LanguageDefinitions, sleigh::TranslationFlags};
+use pcode_rs::{
+    anal::lift::Lifter,
+    sleigh::{LanguageDefinitions, TranslationFlags},
+};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -23,19 +26,9 @@ struct Args {
     #[clap(required=true, short, long, value_parser=maybe_hex::<u64>)]
     offset: u64,
 
-    /// Max number of bytes to translate
-    #[clap(required=true, short, long, value_parser=maybe_hex::<usize>)]
-    num_bytes: usize,
-
     /// Base address for translation,
     #[clap(required=true, short, long, value_parser=maybe_hex::<u64>)]
     address: u64,
-
-    /// Max number of instructions to translate
-    #[clap(short, long, value_parser=maybe_hex::<usize>, default_value_t=0)]
-    max_insns: usize,
-
-    flags: Option<u32>,
 }
 
 fn main() {
@@ -43,10 +36,10 @@ fn main() {
 
     let path: &Path = args.binary.as_ref();
     let file = std::fs::File::open(path).expect("Failed to open file");
-    let mut reader = std::io::BufReader::new(file);
+    let reader = std::io::BufReader::new(file);
 
     let ldefs = LanguageDefinitions::load().unwrap();
-    let mut context = match ldefs.get_context(&args.id) {
+    let context = match ldefs.get_context(&args.id) {
         Some(context) => context,
         None => {
             eprintln!("Failed to get context for language: {}", args.id);
@@ -58,28 +51,8 @@ fn main() {
         }
     };
 
-    let offset = args.offset;
-    reader
-        .seek(std::io::SeekFrom::Start(offset))
-        .expect("Failed to seek to offset");
-
-    let num_bytes = args.num_bytes;
-    let mut bytes = vec![0; num_bytes as usize];
-    reader.read_exact(&mut bytes).expect("Failed to read bytes");
-
-    let (num_bytes, translation) = context
-        .translate(
-            bytes.as_slice(),
-            args.address,
-            args.max_insns,
-            args.flags
-                .map(|flag| flag.try_into())
-                .unwrap_or(Ok(TranslationFlags::default()))
-                .unwrap(),
-        )
-        .expect("Failed to translate");
-
-    translation.into_iter().for_each(|insn| {
-        println!("{}", insn);
-    });
+    let mut lifter = Lifter::new(context, reader);
+    lifter
+        .lift(args.address, args.offset)
+        .expect("Failed to lift");
 }

@@ -66,6 +66,7 @@ PTranslation translate(PContext ctx,
                        uint64_t base_address,
                        unsigned int max_instructions,
                        uint32_t flags);
+size_t get_translation_num_bytes(PTranslation trans);
 size_t get_translation_op_count(PTranslation trans);
 PPcodeOp get_translation_op(PTranslation trans, size_t index);
 

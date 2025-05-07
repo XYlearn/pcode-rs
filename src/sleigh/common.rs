@@ -57,7 +57,7 @@ mod test {
     use quick_xml::de;
 
     #[test]
-    fn test() {
+    fn test_parse_properties() {
         let s = r#"
         <properties>
         <property key="useOperandReferenceAnalyzerSwitchTables" value="true"/>

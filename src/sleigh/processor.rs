@@ -2,7 +2,7 @@ use std::io::BufReader;
 use std::task::Context;
 use std::{fs::File, path::Path};
 
-use crate::common::{ContextData, Range};
+use super::common::{ContextData, Range};
 
 use super::common::Properties;
 use anyhow::Result;
@@ -54,7 +54,7 @@ pub struct InferPtrBounds {
 
 #[cfg(test)]
 mod test {
-    use crate::language::LanguageDefinitions;
+    use crate::sleigh::LanguageDefinitions;
 
     use super::*;
 

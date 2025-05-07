@@ -3,11 +3,11 @@ use std::{collections::HashMap, ffi::CString, fmt::Display, ops::BitOr, os::raw:
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
-use crate::bindings::*;
+use super::bindings::*;
 
 #[derive(Debug)]
 pub struct Context {
-    pub internal: *mut c_void,
+    internal: *mut c_void,
 }
 
 impl Drop for Context {
@@ -23,19 +23,27 @@ impl Context {
         }
     }
 
+    pub fn translate_block(&mut self, bytes: &[u8], address: u64) -> Result<(usize, Vec<PcodeOp>)> {
+        self.translate(bytes, address, 0, TranslationFlags::TerminateBlockEnding)
+    }
+
+    /// Translate a sequence of bytes into Pcode operations
+    ///
+    /// # Arguments
+    /// * `bytes` - The bytes to translate
+    /// * `num_bytes` - The number of bytes to translate
+    /// * `address` - The address of the first byte
+    /// * `max_insns` - The maximum number of instructions to translate, if 0, no limit
+    /// * `flags` - The translation flags
     pub fn translate(
         &mut self,
         bytes: &[u8],
-        // num_bytes: usize,
         address: u64,
         max_insns: usize,
         flags: TranslationFlags,
-    ) -> Result<Vec<PcodeOp>> {
+    ) -> Result<(usize, Vec<PcodeOp>)> {
         use std::ffi::{c_uint, c_ulonglong, CStr};
 
-        // if bytes.len() < num_bytes {
-        //     return Err(anyhow::anyhow!("num_bytes exceeds the length of bytes"));
-        // }
         let num_bytes = bytes.len();
         let bytes = unsafe { CStr::from_bytes_with_nul_unchecked(bytes) };
         let mut translation = unsafe {
@@ -67,10 +75,12 @@ impl Context {
             pcode_ops.push(pcode_op.into());
         }
 
+        let num_bytes = unsafe { get_translation_num_bytes(translation) };
+
         unsafe {
             reset_context(self.internal);
         }
-        Ok(pcode_ops)
+        Ok((num_bytes, pcode_ops))
     }
 
     pub fn disassemble(
@@ -115,11 +125,25 @@ impl Context {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct PcodeOp {
     pub opcode: OpCode,
     pub output: Option<VarnodeData>,
     pub inputs: Vec<VarnodeData>,
+}
+
+impl PcodeOp {
+    pub fn new(opcode: OpCode, output: Option<VarnodeData>, inputs: Vec<VarnodeData>) -> Self {
+        PcodeOp {
+            opcode,
+            output,
+            inputs,
+        }
+    }
+
+    pub fn is_blk_end(&self) -> bool {
+        self.opcode.is_blk_end()
+    }
 }
 
 impl From<PPcodeOp> for PcodeOp {
@@ -201,14 +225,14 @@ impl From<PDisassemblyInstruction> for Instruction {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum AddrSpace {
     Ram,
     Register,
     Unique,
     Stack,
     Constant,
-    Other(String),
+    Other,
 }
 
 impl From<PAddrSpace> for AddrSpace {
@@ -224,7 +248,7 @@ impl From<PAddrSpace> for AddrSpace {
             "unique" => AddrSpace::Unique,
             "stack" => AddrSpace::Stack,
             "const" => AddrSpace::Constant,
-            _ => AddrSpace::Other(name),
+            _ => AddrSpace::Other,
         }
     }
 }
@@ -244,7 +268,7 @@ impl From<PAddress> for Address {
     }
 }
 
-#[derive(Debug, Clone, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub struct VarnodeData {
     pub space: AddrSpace,
     pub offset: u64,
@@ -281,13 +305,26 @@ impl Display for VarnodeData {
             AddrSpace::Unique => write!(f, "(unique,{},{})", self.offset, self.size),
             AddrSpace::Stack => write!(f, "(stack,0x{:X},{})", self.offset, self.size),
             AddrSpace::Constant => write!(f, "(const,{},{})", self.offset, self.size),
-            AddrSpace::Other(name) => write!(
-                f,
-                "(other({}),{},{})",
-                name.to_lowercase(),
-                self.offset,
-                self.size
-            ),
+            AddrSpace::Other => write!(f, "(other,{},{})", self.offset, self.size),
+        }
+    }
+}
+
+impl VarnodeData {
+    pub fn new(space: AddrSpace, offset: u64, size: u32, reg_name: Option<String>) -> Self {
+        VarnodeData {
+            space,
+            offset,
+            size,
+            reg_name,
+        }
+    }
+
+    pub fn get_constant(&self) -> Option<u64> {
+        match self.space {
+            AddrSpace::Ram => Some(self.offset),
+            AddrSpace::Constant => Some(self.offset),
+            _ => None,
         }
     }
 }
@@ -547,6 +584,20 @@ impl Display for OpCode {
     }
 }
 
+impl OpCode {
+    pub fn is_blk_end(&self) -> bool {
+        matches!(
+            self,
+            OpCode::Branch
+                | OpCode::CBranch
+                | OpCode::BranchInd
+                | OpCode::Return
+                | OpCode::Call
+                | OpCode::CallInd
+        )
+    }
+}
+
 #[derive(Debug, Clone, Copy, Eq, PartialEq, PartialOrd, Ord)]
 pub enum TranslationFlags {
     Default = 0,
@@ -620,7 +671,7 @@ impl Default for PAddrSpace {
 
 #[cfg(test)]
 mod test {
-    use crate::language::LanguageDefinitions;
+    use crate::sleigh::LanguageDefinitions;
 
     use super::*;
 
@@ -636,7 +687,33 @@ mod test {
             result.unwrap_err()
         );
 
-        let translation = result.unwrap();
+        let (num_bytes, translation) = result.unwrap();
+        assert_eq!(num_bytes, 4);
+        assert!(!translation.is_empty(), "Translation is null");
+    }
+
+    #[test]
+    fn test_translate_block() {
+        let ldefs = LanguageDefinitions::load().unwrap();
+        let mut context = ldefs.get_context("MIPS:BE:32:default").unwrap();
+        let bytes = vec![
+            0x27, 0xbd, 0x00, 0x38,               /* addiu sp, sp, 0x38 */
+            0x8f, 0x91, 0x80, 0x28,               /* lw s1, -0x7fd8(gp) */
+            0x8f, 0x99, 0x80, 0x48,               /* lw t9, -0x7fb8(gp) */
+            0x26, 0x24, 0x1d, 0x30,               /* addiu a0, s1, str._dev_nvram */
+            0x03, 0x20, 0xf8, 0x09,               /* jalr t9 */
+            0x24, 0x05, 0x00, 0x02,               /* addiu a1, zero, 2 */
+            0xae, 0x02, 0x20, 0x60,               /* sw v0, 0x2060(s0) */
+        ];
+        let result = context.translate_block(&bytes, 0);
+        assert!(
+            result.is_ok(),
+            "Failed to translate: {:?}",
+            result.unwrap_err()
+        );
+
+        let (num_bytes, translation) = result.unwrap();
+        assert_eq!(num_bytes, 24);
         assert!(!translation.is_empty(), "Translation is null");
     }
 }

@@ -163,6 +163,7 @@ public:
 class Translation {
 public:
     std::vector<PcodeOp> m_ops;
+    size_t num_bytes;
 
     Translation()
     {
@@ -365,15 +366,17 @@ public:
                 num_instructions++;
             }
 
+            offset += num_bytes_decoded;
+
             if ((flags & TranslateFlags::BB_TERMINATING) && pcode_cache.m_bb_terminating_op_emitted) {
                 LOG("Reached end of block");
                 break;
             }
 
-            offset += num_bytes_decoded;
         }
 
         translation->m_ops = std::move(pcode_cache.m_ops);
+        translation->num_bytes = offset;
         return translation;
     }
 };
@@ -491,6 +494,11 @@ PTranslation translate(PContext ctx,
         snprintf(error_str, ERROR_STR_SIZE, "std::exception: %s", err.what());
         return nullptr;
     }
+}
+
+size_t get_translation_num_bytes(PTranslation trans)
+{
+    return static_cast<Translation *>(trans)->num_bytes;
 }
 
 size_t get_translation_op_count(PTranslation trans)

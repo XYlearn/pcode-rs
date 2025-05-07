@@ -6,9 +6,9 @@ use anyhow::Result;
 use quick_xml::de;
 use serde::{Deserialize, Serialize};
 
-use crate::bindings::{context_set_variable_default, create_context};
-use crate::context::Context;
-use crate::processor::ProcessorSpec;
+use super::bindings::{context_set_variable_default, create_context};
+use super::context::Context;
+use super::ProcessorSpec;
 
 const ARCH_SPEC_DIR: &str = concat!(env!("OUT_DIR"), "/processors");
 
@@ -162,7 +162,7 @@ impl LanguageSpec {
                         let name = CString::new(set_data.name.clone()).unwrap();
                         let val = c_uint::from(set_data.val.parse::<u32>().unwrap());
                         unsafe {
-                            context_set_variable_default(context.internal, name.as_ptr(), val);
+                            context_set_variable_default(context_internal, name.as_ptr(), val);
                         }
                     });
                 });
